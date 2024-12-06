@@ -14,21 +14,20 @@ def process_bindingdb_tsv(config) -> pd.DataFrame:
     smaller_TSV_PATH = config.TSV_PATH.replace('.tsv', f'_{config.n_rows}.tsv')
     
     os.system(f"head -n 1 {config.TSV_PATH} > {smaller_TSV_PATH}")
-    os.system(f"cat {config.TSV_PATH} >> {smaller_TSV_PATH}")
+    os.system(f"cat {config.TSV_PATH} | shuf | head -n {config.n_rows} >> {smaller_TSV_PATH}")
     
     try:
-        df = pd.read_csv(
-            smaller_TSV_PATH, 
-            sep='\t',
-            low_memory=False,
-            on_bad_lines='skip',
-            quoting=csv.QUOTE_NONE,  # No quote handling
-            dtype=str,  # Read everything as string
-            encoding='utf-8',
-            encoding_errors='ignore',  # Handle any encoding issues
-        )
+        df = pd.read_csv(smaller_TSV_PATH, 
+                        sep='\t',
+                        low_memory=False,
+                        on_bad_lines='skip',
+                        quoting=csv.QUOTE_NONE,  # No quote handling
+                        dtype=str,  # Read everything as string
+                        encoding='utf-8',
+                        encoding_errors='ignore',  # Handle any encoding issues
+                        )
         
-        df['Ligand SMILES'].to_csv(header=False, index=False, path='/home/khoren/all_smiles.csv')
+        logger.info(f"Successfully loaded {len(df)} rows")
         
         df = df[ORIGINAL_COLUMNS]
         df.columns = NORMALIZED_COLUMNS
@@ -53,7 +52,6 @@ def process_bindingdb_tsv(config) -> pd.DataFrame:
 
 if __name__ == '__main__':
     from configs import SMALL_NO_NA_NO_CHIANS_CONFIG as config
-    config.n_rows = 100_000
     process_bindingdb_tsv(config)
     
 
