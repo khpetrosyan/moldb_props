@@ -36,6 +36,7 @@ def add_embeddings(config):
 
     df.to_csv(config.csv_with_embeddings_path)
     print(f"\n\nResutls written to {config.csv_with_embeddings_path}\n\n")
+    return config.csv_with_embeddings_path
     
 
 if __name__ == "__main__":
