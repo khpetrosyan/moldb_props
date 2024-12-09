@@ -44,8 +44,7 @@ def predict_large(name, model, smiles, batch_size=640):
 
 def main():
     smiles_path = os.path.join(ROOT_DIR, "data/all_smiles.csv")
-    with open(smiles_path, "r") as f:
-        SMILES = f.read().split("\n")
+    SMILES = pd.read_csv(smiles_path).smiles.to_list()
     
     for p in profiles:
         print(f"Predicting {p['name']}")
