@@ -23,7 +23,7 @@ profiles = [
     {"name": "LogD", "model": LogD},
     {"name": "HERG", "model": HERG},
     {"name": "Ames", "model": Ames},
-]
+][::-1]
 
 save_dir = os.path.join(ROOT_DIR, "output_props")
 os.makedirs(save_dir, exist_ok=True)
@@ -31,9 +31,9 @@ os.makedirs(save_dir, exist_ok=True)
 for p in profiles:
     p["save_path"] = os.path.join(save_dir, f"{p['name']}.csv")
 
-def predict_large(name, model, smiles, batch_size=640):
-    shape = (len(smiles), 5 if name == "Cyp" else 1)
-    predictions = np.full(shape=shape, fill_value=1)#np.nan)
+def predict_large(model, smiles, batch_size=64):
+    shape = model.predict(["C", "CC", "CCC"]).shape
+    predictions = np.full(shape=(len(smiles), *shape[1:]), fill_value=np.nan)
     
     for i in tqdm(range(0, len(smiles), batch_size)):
         batch = smiles[i:i+batch_size]
@@ -44,7 +44,7 @@ def predict_large(name, model, smiles, batch_size=640):
 
 def main():
     smiles_path = os.path.join(ROOT_DIR, "data/all_smiles.csv")
-    SMILES = pd.read_csv(smiles_path).smiles.to_list()
+    SMILES = pd.read_csv(smiles_path).smiles.to_list()[:128]
     
     for p in profiles:
         print(f"Predicting {p['name']}")
@@ -54,7 +54,7 @@ def main():
         name = p["name"]
         save_path = p["save_path"]  
         
-        predictions = predict_large(name, model, SMILES)
+        predictions = predict_large(model, SMILES)
         df = pd.DataFrame(predictions, columns=[f"{name}_{i+1}" for i in range(predictions.shape[1])])
         df.insert(0, "SMILES", SMILES)
         df.to_csv(save_path, index=False)
