@@ -8,11 +8,9 @@ from contextlib import redirect_stdout
 from io import StringIO
 from tqdm import tqdm
 
-
 logging.getLogger().setLevel(logging.ERROR)
 for logger_name in ["rdkit", "*"]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
-
 
 FRAGMENT_NAMES = {
     "o1cccc1": "furan_ring",
@@ -61,7 +59,6 @@ FRAGMENT_NAMES = {
     "*#[N;D1]": "nitrile"
 }
 
-
 fgs = list(FRAGMENT_NAMES.keys())
 
 def fragments(molecule):
@@ -72,26 +69,53 @@ def fragments(molecule):
     return [_is_fg_in_mol(fg) for fg in fgs]
 
 def calculate_molecular_features(smiles):
-    """
-    Calculate molecular features for a given SMILES string.
-    Returns a dictionary containing the fingerprint vector, its sum, and other molecular descriptors.
-    """
     try:
         with redirect_stdout(StringIO()):
             molecule = Chem.MolFromSmiles(smiles)
+            
+            results = {
+                'SMILES': smiles,
+                'Morgan_Fingerprint': '',
+                'Fingerprint_Sum': np.nan,
+                'Topological_Polar_Surface_Area': np.nan,
+                'Molecular_Weight': np.nan,
+                'Molar_Refractivity': np.nan,
+                'Complexity_Index': np.nan,
+                'LogP': np.nan,
+                'Balaban_J_Index': np.nan,
+                'Ring_Count': np.nan,
+                'Surface_Area': np.nan,
+                'H_Bond_Donors': np.nan,
+                'H_Bond_Acceptors': np.nan,
+                'Heteroatom_Count': np.nan,
+                'Heavy_Atom_Count': np.nan,
+                'Aromatic_Ring_Count': np.nan,
+                'Rotatable_Bond_Count': np.nan,
+                'Saturated_Ring_Count': np.nan,
+                'Aliphatic_Ring_Count': np.nan,
+                'Valence_Electron_Count': np.nan,
+                'SP2_Atom_Count': np.nan,
+                'Basic_Nitrogen_Count': np.nan,
+                'Has_Sulfonylurea': np.nan,
+                'Has_Halogenated_Phenyl': np.nan
+            }
+            
+            for fg_smarts, fg_name in FRAGMENT_NAMES.items():
+                results[f'Has_{fg_name}'] = np.nan
+            
             if molecule is None:
-                return None
-            
-            
+                return results
+                
             fingerprint = rdMolDescriptors.GetMorganFingerprintAsBitVect(molecule, 2, nBits=2048)
             fingerprint_array = np.zeros((2048,))
             DataStructs.ConvertToNumpyArray(fingerprint, fingerprint_array)
             
+            nonzero_indices = np.nonzero(fingerprint_array)[0]
+            fp_indices_str = ','.join(map(str, nonzero_indices))
             
-            results = {
-                'SMILES': smiles,
-                'Morgan_Fingerprint': fingerprint_array,
-                'Fingerprint_Sum': int(np.sum(fingerprint_array)),
+            results.update({
+                'Morgan_Fingerprint': fp_indices_str,
+                'Fingerprint_Sum': len(nonzero_indices),
                 'Topological_Polar_Surface_Area': Descriptors.TPSA(molecule),
                 'Molecular_Weight': Descriptors.MolWt(molecule),
                 'Molar_Refractivity': Descriptors.MolMR(molecule),
@@ -109,14 +133,11 @@ def calculate_molecular_features(smiles):
                 'Saturated_Ring_Count': Descriptors.NumSaturatedRings(molecule),
                 'Aliphatic_Ring_Count': Descriptors.NumAliphaticRings(molecule),
                 'Valence_Electron_Count': Descriptors.NumValenceElectrons(molecule),
-                'SP2_Atom_Count': sum(1 for atom in molecule.GetAtoms() 
-                                    if atom.GetHybridization() == Chem.HybridizationType.SP2),
-                'Basic_Nitrogen_Count': sum(1 for atom in molecule.GetAtoms() 
-                                          if atom.GetSymbol() == 'N' and atom.GetTotalDegree() == 3),
+                'SP2_Atom_Count': sum(1 for atom in molecule.GetAtoms() if atom.GetHybridization() == Chem.HybridizationType.SP2),
+                'Basic_Nitrogen_Count': sum(1 for atom in molecule.GetAtoms() if atom.GetSymbol() == 'N' and atom.GetTotalDegree() == 3),
                 'Has_Sulfonylurea': molecule.HasSubstructMatch(Chem.MolFromSmarts("[#16](=[O])(=[O])-[#7]")),
                 'Has_Halogenated_Phenyl': molecule.HasSubstructMatch(Chem.MolFromSmarts("c1ccccc1[F,Cl,Br,I]"))
-            }
-            
+            })
             
             fragment_results = fragments(molecule)
             for fg_smarts, fg_name in FRAGMENT_NAMES.items():
@@ -127,22 +148,16 @@ def calculate_molecular_features(smiles):
     
     except Exception as e:
         print(f"Error processing SMILES {smiles}: {str(e)}")
-        return None
+        return results
 
 def process_smiles_chunk(smiles_list, chunk_index, output_dir):
-    """Process a chunk of SMILES and save to a separate file"""
     results = []
     for smiles in tqdm(smiles_list, desc=f"Processing chunk {chunk_index}"):
         result = calculate_molecular_features(smiles)
-        if result is not None:
-            results.append(result)
+        results.append(result)
     
     if results:
         df = pd.DataFrame(results)
-        
-        df['Morgan_Fingerprint'] = df['Morgan_Fingerprint'].apply(lambda x: ','.join(map(str, x)))
-        
-        
         output_file = os.path.join(output_dir, f'molecular_features_chunk_{chunk_index:04d}.csv')
         df.to_csv(output_file, index=False)
         print(f"Saved chunk {chunk_index} to {output_file}")
@@ -150,19 +165,15 @@ def process_smiles_chunk(smiles_list, chunk_index, output_dir):
     return 0
 
 def main():
-    
     input_file = '/home/khoren/moldb_props/data/all_smiles.csv'
     output_dir = '/home/khoren/moldb_props/output_mol_feature'
-    
     
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Reading SMILES from: {input_file}")
     
-    
     df = pd.read_csv(input_file)
-    smiles_list = df['smiles'].tolist()#[:100]  
-    
+    smiles_list = df['smiles'].tolist()#[:100001]
     
     chunk_size = 100000
     total_processed = 0
