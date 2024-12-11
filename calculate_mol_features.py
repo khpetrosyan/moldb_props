@@ -107,15 +107,12 @@ def calculate_molecular_features(smiles):
                 return results
                 
             fingerprint = rdMolDescriptors.GetMorganFingerprintAsBitVect(molecule, 2, nBits=2048)
-            fingerprint_array = np.zeros((2048,))
-            DataStructs.ConvertToNumpyArray(fingerprint, fingerprint_array)
+            fingerprint_indices = list(fingerprint.GetOnBits()) 
+            results['Fingerprint_Sum'] = len(fingerprint_indices)
+            results['Morgan_Fingerprint'] = fingerprint_indices
             
-            nonzero_indices = np.nonzero(fingerprint_array)[0]
-            fp_indices_str = ','.join(map(str, nonzero_indices))
             
             results.update({
-                'Morgan_Fingerprint': fp_indices_str,
-                'Fingerprint_Sum': len(nonzero_indices),
                 'Topological_Polar_Surface_Area': Descriptors.TPSA(molecule),
                 'Molecular_Weight': Descriptors.MolWt(molecule),
                 'Molar_Refractivity': Descriptors.MolMR(molecule),
@@ -158,6 +155,8 @@ def process_smiles_chunk(smiles_list, chunk_index, output_dir):
     
     if results:
         df = pd.DataFrame(results)
+        df['Morgan_Fingerprint'] = df['Morgan_Fingerprint'].apply(lambda x: ','.join(map(str, x)))
+
         output_file = os.path.join(output_dir, f'molecular_features_chunk_{chunk_index:04d}.csv')
         df.to_csv(output_file, index=False)
         print(f"Saved chunk {chunk_index} to {output_file}")
@@ -173,7 +172,7 @@ def main():
     print(f"Reading SMILES from: {input_file}")
     
     df = pd.read_csv(input_file)
-    smiles_list = df['smiles'].tolist()#[:100001]
+    smiles_list = df['smiles'].tolist()#[:1000]
     
     chunk_size = 100000
     total_processed = 0
