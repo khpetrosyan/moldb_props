@@ -6,6 +6,7 @@ from rdkit.Chem import rdMolDescriptors
 from rdkit import DataStructs
 from calculate_mol_features import main as calculate_mol_features
 
+
 def get_bit_indices(bit_vect):
     """Convert RDKit bit vector to list of set bit indices."""
     return list(bit_vect.GetOnBits())
@@ -20,14 +21,11 @@ def compare_fingerprints(smiles1: str, smiles2: str):
         print(f"Failed to parse SMILES:\n1: {smiles1}\n2: {smiles2}")
         return None
     
-    
     fp1_rdkit = rdMolDescriptors.GetMorganFingerprintAsBitVect(mol1, 2, nBits=2048)
     fp2_rdkit = rdMolDescriptors.GetMorganFingerprintAsBitVect(mol2, 2, nBits=2048)
     
-    
     bits1_rdkit = set(fp1_rdkit.GetOnBits())  
     bits2_rdkit = set(fp2_rdkit.GetOnBits())
-    
     
     rdkit_sim = DataStructs.TanimotoSimilarity(fp1_rdkit, fp2_rdkit)
     
@@ -55,7 +53,7 @@ def main():
     print(f"Starting molecular search at {datetime.now()}")
     start_total = time.time()
     
-    csv_file = calculate_mol_features(N=500)[0]
+    csv_file = '/Users/khorenpetrosyan/moldb_props/output_mol_feature/molecular_features.csv'
     fast_search, load_time = load_or_create_cache(csv_file)
     
     print(f"Loaded {len(fast_search.fingerprints)} fingerprints in {load_time:.2f} seconds")
@@ -72,7 +70,6 @@ def main():
         if rdkit_query_bits != stored_query_bits:
             print("Bits in stored but not RDKit:", stored_query_bits - rdkit_query_bits)
             print("Bits in RDKit but not stored:", rdkit_query_bits - stored_query_bits)
-    
     
     results = fast_search.search(query, k=5)
     
@@ -92,10 +89,8 @@ def main():
         if debug_info is None:
             continue
         
-        
         fast_bits1 = set(query)
         fast_bits2 = set(target)
-        
         
         bits_match = (fast_bits1 == debug_info['rdkit_bits1'] and 
                      fast_bits2 == debug_info['rdkit_bits2'])
