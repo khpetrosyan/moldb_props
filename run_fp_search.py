@@ -1,12 +1,12 @@
-from tanimoto_fast import load_or_create_cache
-from datetime import datetime
-import os
 import time
+import numpy as np
 from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors
+from datetime import datetime
 from rdkit import DataStructs
+from rdkit.Chem import rdMolDescriptors
 
 from utils.helpers import simple_merge_csvs
+from tanimoto_fast import load_or_create_cache
 from calculate_mol_features import main as calculate_mol_features
 
 
@@ -61,7 +61,7 @@ def main():
     
     print(f"Loaded {len(fast_search.fingerprints)} fingerprints in {load_time:.2f} seconds")
     
-    i_mol = -1
+    i_mol = np.random.randint(len(fast_search.fingerprints))
     query = fast_search.fingerprints[i_mol]
     query_smiles = fast_search.smiles[i_mol]
     
@@ -115,4 +115,6 @@ def main():
     print(f"Finished at {datetime.now()}")
 
 if __name__ == "__main__":
-    main()
+    for _ in range(5):
+        main()
+        print("\n", "="*80, "\n")

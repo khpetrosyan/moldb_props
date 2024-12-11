@@ -7,28 +7,24 @@ import time
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
-import pickle
 import os
 from pathlib import Path
 
 CACHE_DIR = Path("fingerprint_cache")
-FP_CACHE = CACHE_DIR / "fingerprints.pkl"
+FP_CACHE = CACHE_DIR / "fingerprints.npy"
+SMILES_CACHE = CACHE_DIR / "smiles.npy"
+LENGTHS_CACHE = CACHE_DIR / "lengths.npy"
 METADATA_CACHE = CACHE_DIR / "metadata.pkl"
 
 def parse_fingerprint(fp_str: str) -> Optional[np.ndarray]:
-    """Convert comma-separated string of indices to numpy array. Returns None for invalid inputs."""
     if pd.isna(fp_str) or not isinstance(fp_str, str):
         return None
     try:
-        # Debug print
-        arr = np.fromstring(fp_str.strip('"'), sep=',', dtype=np.int32)
-        return arr
-    except (ValueError, AttributeError) as e:
-        print("Parse error:", str(e))
+        return np.fromstring(fp_str.strip('"'), sep=',', dtype=np.int32)
+    except (ValueError, AttributeError):
         return None
 
 def batch_parse_fingerprints(chunk):
-    """Parse a batch of fingerprints in parallel."""
     return [parse_fingerprint(fp) for fp in chunk if not pd.isna(fp)]
 
 class FastSearch:
@@ -36,7 +32,15 @@ class FastSearch:
         self.fingerprints = None
         self.smiles = None
         self.fp_lengths = None
-        self.fp_sets = None  # Cache for set representations
+        self._fp_sets = None
+    
+    @property
+    def fp_sets(self):
+        # Lazy initialization of sets
+        if self._fp_sets is None:
+            print("Creating fingerprint sets on first use...")
+            self._fp_sets = [set(fp) for fp in tqdm(self.fingerprints, desc="Creating sets")]
+        return self._fp_sets
         
     def fit(self, fingerprints: List[np.ndarray], smiles: List[str] = None):
         print(f"Fitting {len(fingerprints):,} fingerprints...")
@@ -44,35 +48,47 @@ class FastSearch:
         self.fingerprints = fingerprints
         self.smiles = smiles
         self.fp_lengths = np.array([len(fp) for fp in fingerprints])
-        # Precompute sets for faster intersection operations
-        print("Precomputing fingerprint sets...")
-        self.fp_sets = [set(fp) for fp in tqdm(fingerprints, desc="Creating sets")]
+        self._fp_sets = None  # Reset cache
         print(f"Fit completed in {time.time() - start:.2f} seconds")
     
-    def save_cache(self, cache_file: Path):
-        """Save the preprocessed data to cache."""
-        cache_data = {
-            'fingerprints': self.fingerprints,
-            'smiles': self.smiles,
-            'fp_lengths': self.fp_lengths,
-            'fp_sets': self.fp_sets
-        }
-        with open(cache_file, 'wb') as f:
-            pickle.dump(cache_data, f)
+    def save_cache(self, cache_dir: Path):
+        """Save the preprocessed data to cache using memory-mapped files."""
+        cache_dir.mkdir(exist_ok=True)
+        
+        # Save fingerprints as a structured numpy array
+        fp_array = np.array(self.fingerprints, dtype=object)
+        np.save(cache_dir / "fingerprints.npy", fp_array)
+        
+        # Save SMILES as numpy array
+        if self.smiles:
+            smiles_array = np.array(self.smiles, dtype=str)
+            np.save(cache_dir / "smiles.npy", smiles_array)
+        
+        # Save lengths as numpy array
+        np.save(cache_dir / "lengths.npy", self.fp_lengths)
     
     @classmethod
-    def load_cache(cls, cache_file: Path):
-        """Load preprocessed data from cache."""
+    def load_cache(cls, cache_dir: Path):
+        """Load preprocessed data from cache using memory mapping where possible."""
         instance = cls()
-        with open(cache_file, 'rb') as f:
-            cache_data = pickle.load(f)
-        instance.fingerprints = cache_data['fingerprints']
-        instance.smiles = cache_data['smiles']
-        instance.fp_lengths = cache_data['fp_lengths']
-        instance.fp_sets = cache_data['fp_sets']
+        
+        # Load fingerprints
+        fp_array = np.load(cache_dir / "fingerprints.npy", allow_pickle=True)
+        instance.fingerprints = fp_array.tolist()
+        
+        # Load SMILES if exists
+        smiles_path = cache_dir / "smiles.npy"
+        if smiles_path.exists():
+            instance.smiles = np.load(smiles_path, allow_pickle=True).tolist()
+        
+        # Load lengths using memory mapping
+        instance.fp_lengths = np.load(cache_dir / "lengths.npy", mmap_mode='r')
+        instance._fp_sets = None
+        
         return instance
     
     def search(self, query: np.ndarray, k: int = 5, show_progress: bool = True, batch_size: int = 10000) -> List[Tuple[int, float]]:
+        # Search implementation remains the same
         start = time.time()
         n_query = len(query)
         heap = []
@@ -86,7 +102,6 @@ class FastSearch:
                 start_idx = batch_idx * batch_size
                 end_idx = min(start_idx + batch_size, len(self.fingerprints))
                 
-                # Quick upper bound check using precomputed lengths
                 upper_bounds = np.minimum(n_query, self.fp_lengths[start_idx:end_idx]) / \
                              np.maximum(n_query, self.fp_lengths[start_idx:end_idx])
                 
@@ -100,7 +115,6 @@ class FastSearch:
                 comparisons += end_idx - start_idx
                 
                 for idx in valid_indices:
-                    # Use precomputed sets for intersection
                     intersection = len(query_set.intersection(self.fp_sets[idx]))
                     union = n_query + self.fp_lengths[idx] - intersection
                     similarity = intersection / union if union > 0 else 0.0
@@ -131,18 +145,22 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
     
     # Check if cached data exists and is newer than CSV
     csv_mtime = os.path.getmtime(csv_file)
-    cache_exists = FP_CACHE.exists() and METADATA_CACHE.exists()
+    cache_exists = all(p.exists() for p in [FP_CACHE, LENGTHS_CACHE])
     
     if cache_exists:
         with open(METADATA_CACHE, 'rb') as f:
-            metadata = pickle.load(f)
-            if metadata.get('csv_mtime') == csv_mtime:
-                print("Loading from cache...")
-                start = time.time()
-                searcher = FastSearch.load_cache(FP_CACHE)
-                load_time = time.time() - start
-                print(f"Loaded {len(searcher.fingerprints):,} fingerprints from cache in {load_time:.2f} seconds")
-                return searcher, load_time
+            try:
+                import pickle
+                metadata = pickle.load(f)
+                if metadata.get('csv_mtime') == csv_mtime:
+                    print("Loading from cache...")
+                    start = time.time()
+                    searcher = FastSearch.load_cache(CACHE_DIR)
+                    load_time = time.time() - start
+                    print(f"Loaded {len(searcher.fingerprints):,} fingerprints from cache in {load_time:.2f} seconds")
+                    return searcher, load_time
+            except:
+                pass
     
     # Cache doesn't exist or is outdated - create new
     print("Cache not found or outdated. Creating new cache...")
@@ -156,7 +174,6 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
     chunks = [df['Morgan_Fingerprint'][i:i + chunk_size] for i in range(0, len(df), chunk_size)]
     
     fingerprints = []
-    invalid_count = 0
     
     with ProcessPoolExecutor(max_workers=n_cores) as executor:
         futures = [executor.submit(batch_parse_fingerprints, chunk) for chunk in chunks]
@@ -171,8 +188,9 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
     searcher.fit(fingerprints, smiles)
     
     # Save to cache
-    searcher.save_cache(FP_CACHE)
+    searcher.save_cache(CACHE_DIR)
     with open(METADATA_CACHE, 'wb') as f:
+        import pickle
         pickle.dump({'csv_mtime': csv_mtime}, f)
     
     process_time = time.time() - start
