@@ -7,7 +7,9 @@ from rdkit.Chem import Descriptors, rdMolDescriptors, DataStructs
 from contextlib import redirect_stdout
 from io import StringIO
 from tqdm import tqdm
+
 from configs import ROOT_DIR
+from utils.helpers import simple_merge_csvs
 
 logging.getLogger().setLevel(logging.ERROR)
 for logger_name in ["rdkit", "*"]:
@@ -77,7 +79,7 @@ def calculate_molecular_features(smiles):
             molecule = Chem.MolFromSmiles(smiles)
             
             if molecule is None:
-                return results
+                return
             
             results = {
                 'SMILES': smiles,
@@ -165,7 +167,7 @@ def process_smiles_chunk(smiles_list, chunk_index, output_dir):
         return len(results), output_file
     return 0, output_file
 
-def main(N=None, chunk_size=100_000):
+def main(N=None, chunk_size=100_000, save_by_chunks=False):
     input_file = os.path.join(ROOT_DIR, 'data/all_smiles.csv')
     output_dir = os.path.join(ROOT_DIR, 'output_mol_feature')
     
@@ -176,8 +178,10 @@ def main(N=None, chunk_size=100_000):
     df = pd.read_csv(input_file)
     
     smiles_list = df['smiles'].tolist()
-    if isinstance(N, int) and N > 0:
-        smiles_list = smiles_list[:N]
+    if not isinstance(N, int) or not N > 0:
+        N = len(smiles_list)
+        
+    smiles_list = smiles_list[:N]
     
     total_processed = 0
     chunk_size = min(100_000, N)
@@ -189,6 +193,10 @@ def main(N=None, chunk_size=100_000):
         processed, output_file = process_smiles_chunk(chunk, chunk_index, output_dir)
         total_processed += processed
         output_files.append(output_file)
+    
+    if not save_by_chunks:
+        simple_merge_csvs(output_files, os.path.join(output_dir, 'molecular_features.csv'))
+        [os.remove(f) for f in output_files]
     
     print(f"\nProcessing complete!")
     print(f"Total SMILES processed: {total_processed}")
