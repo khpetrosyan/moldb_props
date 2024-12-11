@@ -21,9 +21,7 @@ def parse_fingerprint(fp_str: str) -> Optional[np.ndarray]:
         return None
     try:
         # Debug print
-        print("Input string:", fp_str[:100])  # Show first 100 chars
         arr = np.fromstring(fp_str.strip('"'), sep=',', dtype=np.int32)
-        print("Parsed array:", arr[:10])  # Show first 10 elements
         return arr
     except (ValueError, AttributeError) as e:
         print("Parse error:", str(e))

@@ -12,6 +12,8 @@ from configs import ROOT_DIR
 logging.getLogger().setLevel(logging.ERROR)
 for logger_name in ["rdkit", "*"]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
+logger = logging.getLogger(__name__)
+
 
 FRAGMENT_NAMES = {
     "o1cccc1": "furan_ring",
@@ -74,6 +76,9 @@ def calculate_molecular_features(smiles):
         with redirect_stdout(StringIO()):
             molecule = Chem.MolFromSmiles(smiles)
             
+            if molecule is None:
+                return results
+            
             results = {
                 'SMILES': smiles,
                 'Morgan_Fingerprint': '',
@@ -103,9 +108,6 @@ def calculate_molecular_features(smiles):
             
             for fg_smarts, fg_name in FRAGMENT_NAMES.items():
                 results[f'Has_{fg_name}'] = np.nan
-            
-            if molecule is None:
-                return results
                 
             fingerprint = rdMolDescriptors.GetMorganFingerprintAsBitVect(molecule, 2, nBits=2048)
             fingerprint_indices = sorted(list(fingerprint.GetOnBits()))
@@ -143,15 +145,15 @@ def calculate_molecular_features(smiles):
                 
             return results
     
-    except Exception as e:
-        print(f"Error processing SMILES {smiles}: {str(e)}")
-        return results
+    except Exception:
+        logger.exception(f"Error processing SMILES {smiles}: \n\n")
+        return
 
 def process_smiles_chunk(smiles_list, chunk_index, output_dir):
     results = []
     for smiles in tqdm(smiles_list, desc=f"Processing chunk {chunk_index}"):
-        result = calculate_molecular_features(smiles)
-        results.append(result)
+        if result := calculate_molecular_features(smiles):
+            results.append(result)
     
     if results:
         df = pd.DataFrame(results)

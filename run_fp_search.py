@@ -1,4 +1,4 @@
-from tanimoto_fast import FastSearch, load_or_create_cache
+from tanimoto_fast import load_or_create_cache
 from datetime import datetime
 import time
 from rdkit import Chem
