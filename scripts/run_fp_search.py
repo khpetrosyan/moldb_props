@@ -1,9 +1,12 @@
 from tanimoto_fast import load_or_create_cache
 from datetime import datetime
+import os
 import time
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 from rdkit import DataStructs
+
+from utils.helpers import simple_merge_csvs
 from calculate_mol_features import main as calculate_mol_features
 
 def get_bit_indices(bit_vect):
@@ -55,8 +58,10 @@ def main():
     print(f"Starting molecular search at {datetime.now()}")
     start_total = time.time()
     
-    csv_file = calculate_mol_features(N=500)[0]
-    fast_search, load_time = load_or_create_cache(csv_file)
+    chunk_csv_files = calculate_mol_features(N=1000, chunk_size=100)
+    merged_file = os.path.join(os.path.dirname(chunk_csv_files[0]), 'molecular_features.csv')
+    simple_merge_csvs(chunk_csv_files, merged_file)
+    fast_search, load_time = load_or_create_cache(merged_file)
     
     print(f"Loaded {len(fast_search.fingerprints)} fingerprints in {load_time:.2f} seconds")
     
