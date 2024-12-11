@@ -9,7 +9,7 @@ from io import StringIO
 from tqdm import tqdm
 
 from configs import ROOT_DIR
-from utils.helpers import simple_merge_csvs
+
 
 logging.getLogger().setLevel(logging.ERROR)
 for logger_name in ["rdkit", "*"]:
@@ -163,11 +163,10 @@ def process_smiles_chunk(smiles_list, chunk_index, output_dir):
 
         output_file = os.path.join(output_dir, f'molecular_features_chunk_{chunk_index:04d}.csv')
         df.to_csv(output_file, index=False)
-        print(f"Saved chunk {chunk_index} to {output_file}")
         return len(results), output_file
     return 0, output_file
 
-def main(N=None, chunk_size=100_000, save_by_chunks=False):
+def main(N=None, chunk_size=100_000):
     input_file = os.path.join(ROOT_DIR, 'data/all_smiles.csv')
     output_dir = os.path.join(ROOT_DIR, 'output_mol_feature')
     
@@ -184,7 +183,7 @@ def main(N=None, chunk_size=100_000, save_by_chunks=False):
     smiles_list = smiles_list[:N]
     
     total_processed = 0
-    chunk_size = min(100_000, N)
+    chunk_size = min(chunk_size, N)
     
     output_files = []
     for i in range(0, len(smiles_list), chunk_size):
@@ -194,14 +193,9 @@ def main(N=None, chunk_size=100_000, save_by_chunks=False):
         total_processed += processed
         output_files.append(output_file)
     
-    if not save_by_chunks:
-        simple_merge_csvs(output_files, os.path.join(output_dir, 'molecular_features.csv'))
-        [os.remove(f) for f in output_files]
-    
     print(f"\nProcessing complete!")
     print(f"Total SMILES processed: {total_processed}")
-    print(f"Output files saved in: {output_dir}")
-    
+    print(f"Output files saved in\n" + '\n'.join(output_files))
     return output_files
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
 from tanimoto_fast import load_or_create_cache
 from datetime import datetime
+import os
 import time
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 from rdkit import DataStructs
+
+from utils.helpers import simple_merge_csvs
 from calculate_mol_features import main as calculate_mol_features
 
 
