@@ -3,10 +3,11 @@ import logging
 import numpy as np
 import pandas as pd
 from rdkit import Chem
-from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors, DataStructs
+from rdkit.Chem import Descriptors, rdMolDescriptors, DataStructs
 from contextlib import redirect_stdout
 from io import StringIO
 from tqdm import tqdm
+from configs import ROOT_DIR
 
 logging.getLogger().setLevel(logging.ERROR)
 for logger_name in ["rdkit", "*"]:
@@ -107,10 +108,9 @@ def calculate_molecular_features(smiles):
                 return results
                 
             fingerprint = rdMolDescriptors.GetMorganFingerprintAsBitVect(molecule, 2, nBits=2048)
-            fingerprint_indices = list(fingerprint.GetOnBits()) 
+            fingerprint_indices = sorted(list(fingerprint.GetOnBits()))
             results['Fingerprint_Sum'] = len(fingerprint_indices)
             results['Morgan_Fingerprint'] = fingerprint_indices
-            
             
             results.update({
                 'Topological_Polar_Surface_Area': Descriptors.TPSA(molecule),
@@ -160,32 +160,39 @@ def process_smiles_chunk(smiles_list, chunk_index, output_dir):
         output_file = os.path.join(output_dir, f'molecular_features_chunk_{chunk_index:04d}.csv')
         df.to_csv(output_file, index=False)
         print(f"Saved chunk {chunk_index} to {output_file}")
-        return len(results)
-    return 0
+        return len(results), output_file
+    return 0, output_file
 
-def main():
-    input_file = '/home/khoren/moldb_props/data/all_smiles.csv'
-    output_dir = '/home/khoren/moldb_props/output_mol_feature'
+def main(N=None, chunk_size=100_000):
+    input_file = os.path.join(ROOT_DIR, 'data/all_smiles.csv')
+    output_dir = os.path.join(ROOT_DIR, 'output_mol_feature')
     
     os.makedirs(output_dir, exist_ok=True)
     
     print(f"Reading SMILES from: {input_file}")
     
     df = pd.read_csv(input_file)
-    smiles_list = df['smiles'].tolist()#[:1000]
     
-    chunk_size = 100000
+    smiles_list = df['smiles'].tolist()
+    if isinstance(N, int) and N > 0:
+        smiles_list = smiles_list[:N]
+    
     total_processed = 0
+    chunk_size = min(100_000, N)
     
+    output_files = []
     for i in range(0, len(smiles_list), chunk_size):
         chunk = smiles_list[i:i+chunk_size]
         chunk_index = i // chunk_size
-        processed = process_smiles_chunk(chunk, chunk_index, output_dir)
+        processed, output_file = process_smiles_chunk(chunk, chunk_index, output_dir)
         total_processed += processed
+        output_files.append(output_file)
     
     print(f"\nProcessing complete!")
     print(f"Total SMILES processed: {total_processed}")
     print(f"Output files saved in: {output_dir}")
+    
+    return output_files
 
 if __name__ == "__main__":
     main()
