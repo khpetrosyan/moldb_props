@@ -42,12 +42,7 @@ def compare_fingerprints(smiles1: str, smiles2: str):
 
 def debug_fingerprint(smiles: str):
     """Generate and show fingerprint details for a single molecule."""
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    
-    fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
-    bits = set(fp.GetOnBits())
+    bits = set(get_morgan_fp_indices(smiles))
     print(f"Generated {len(bits)} bits for SMILES: {smiles}")
     print(f"Bit positions: {sorted(list(bits))[:10]}...")
     return bits
@@ -62,7 +57,7 @@ def main(fast_search):
     print("\nVerifying query fingerprint...")
     rdkit_query_bits = debug_fingerprint(query_smiles)
     if rdkit_query_bits is not None:
-        stored_query_bits = set(query_smiles)
+        stored_query_bits = set(query)
         print(f"Stored bits match RDKit: {rdkit_query_bits == stored_query_bits}")
         if rdkit_query_bits != stored_query_bits:
             print("Bits in stored but not RDKit:", stored_query_bits - rdkit_query_bits)

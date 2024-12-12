@@ -133,7 +133,7 @@ class FastSearch:
         self, 
         query_smiles: np.ndarray, 
         k: int = 5,
-        threshold: float = 0.3, 
+        threshold: float = 0.5, 
         batch_size: int = 10000
     ) -> List[Tuple[int, float]]:
         
@@ -188,3 +188,4 @@ class FastSearch:
         )
         
         return results
+
