@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 from concurrent.futures import ProcessPoolExecutor
 
+from utils.helpers import get_morgan_fp_indices
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -108,7 +110,7 @@ class FastSearch:
         self.fp_lengths = np.array(fp_lengths)
         self._fp_sets = None  # Reset cache
         self._log_info(f"Fit completed.")
-    
+        
     def _save_cache(self):
         """Save the current state to cache."""
         self.fingerprint_cache_dir.mkdir(exist_ok=True)
@@ -129,11 +131,16 @@ class FastSearch:
 
     def search(
         self, 
-        query: np.ndarray, 
+        query_smiles: np.ndarray, 
         k: int = 5,
         threshold: float = 0.3, 
         batch_size: int = 10000
     ) -> List[Tuple[int, float]]:
+        
+        query = get_morgan_fp_indices(query_smiles)
+        if query is None:
+            self._log_info("Invalid query SMILES. Skipping search.")
+            return []
         
         heap = []
         n_query = len(query)

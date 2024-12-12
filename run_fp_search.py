@@ -6,7 +6,7 @@ from rdkit import DataStructs
 from rdkit.Chem import rdMolDescriptors
 
 from tanimoto_fast import FastSearch
-from utils.helpers import simple_merge_csvs
+from utils.helpers import get_morgan_fp_indices
 from calculate_mol_features import main as calculate_mol_features
 
 
@@ -54,26 +54,28 @@ def debug_fingerprint(smiles: str):
 
 def main(fast_search):
     print(f"Starting molecular search at {datetime.now()}")
-    start_total = time.time()
+    query_smiles = np.random.choice(fast_search.smiles) # "CC(=O)OC1=CC=CC=C1C(=O)O" # Aspirin
+    query = get_morgan_fp_indices(query_smiles)
     
-    i_mol = np.random.randint(len(fast_search.fingerprints))
-    query = fast_search.fingerprints[i_mol]
-    query_smiles = fast_search.smiles[i_mol]
+    start_total = time.time()
     
     print("\nVerifying query fingerprint...")
     rdkit_query_bits = debug_fingerprint(query_smiles)
     if rdkit_query_bits is not None:
-        stored_query_bits = set(query)
+        stored_query_bits = set(query_smiles)
         print(f"Stored bits match RDKit: {rdkit_query_bits == stored_query_bits}")
         if rdkit_query_bits != stored_query_bits:
             print("Bits in stored but not RDKit:", stored_query_bits - rdkit_query_bits)
             print("Bits in RDKit but not stored:", rdkit_query_bits - stored_query_bits)
     
-    results = fast_search.search(query, k=5)
+    results = fast_search.search(
+        query_smiles,
+        k=10,
+        threshold=0.4,
+    )
     
     print("\nQuery SMILES:", query_smiles)
     print("\nFingerprint Analysis:")
-    print(f"Query fingerprint length: {len(query)} bits set")
     
     print("\nTop 5 Most Similar Molecules:")
     print("Rank\tFast-Sim\tRDKit-Sim\tIntersection\tUnion\tBits_Match\tSMILES")
