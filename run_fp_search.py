@@ -110,8 +110,11 @@ def main(fast_search):
     print(f"Finished at {datetime.now()}")
 
 if __name__ == "__main__":
-    csv_file = '/Users/khorenpetrosyan/moldb_props/output_mol_feature/molecular_features.csv'
-    fast_search, load_time = FastSearch(csv_file)
+    import os
+    from configs import ROOT_DIR
+    
+    csv_file = os.path.join(ROOT_DIR, 'output_mol_feature/molecular_features.csv')
+    fast_search = FastSearch(csv_file, fingerprint_cache_dir="cache")
     for _ in range(20):
         print("\n", "="*80, "\n")
         main(fast_search=fast_search)

@@ -20,23 +20,79 @@ def parse_fingerprint(fp_str: str) -> Optional[np.ndarray]:
     except (ValueError, AttributeError):
         return None
 
+
 def batch_parse_fingerprints(chunk):
     return [parse_fingerprint(fp) for fp in chunk if not pd.isna(fp)]
 
 
 class FastSearch:
-    def __init__(self, csv_path, fingerprint_cache_dir=None, verbose=True):
+    def __init__(self, csv_path=None, fingerprint_cache_dir=None, verbose=True):
         self.smiles = None
         self._fp_sets = None
         self.verbose = verbose
         self.fp_lengths = None
         self.fingerprints = None
-        self.fingerprint_cache_dir = fingerprint_cache_dir or "fingerprint_cache"
-        self.searcher = self.load_or_create_cache(csv_path, self.fingerprint_cache_dir)
+        self.fingerprint_cache_dir = Path(fingerprint_cache_dir or "fingerprint_cache")
+        
+        if csv_path:
+            self._initialize_from_source(csv_path)
     
     def _log_info(self, s):
         if self.verbose:
             logger.info(s)
+    
+    def _initialize_from_source(self, csv_path: str):
+        """Initialize the searcher either from cache or by creating new cache."""
+        CACHE_DIR = self.fingerprint_cache_dir
+        FP_CACHE = CACHE_DIR / "fingerprints.npy"
+        METADATA_CACHE = CACHE_DIR / "metadata.pkl"
+
+        CACHE_DIR.mkdir(exist_ok=True)
+        csv_mtime = os.path.getmtime(csv_path)
+        cache_exists = all(p.exists() for p in [FP_CACHE, METADATA_CACHE])
+        
+        if cache_exists:
+            with open(METADATA_CACHE, 'rb') as f:
+                try:
+                    import pickle
+                    metadata = pickle.load(f)
+                    if metadata.get('csv_mtime') == csv_mtime:
+                        self._load_from_cache()
+                        df = pd.read_csv(csv_path)
+                        self.fp_lengths = df['Fingerprint_Sum'].values
+                        logger.info(f"Loaded {len(self.fingerprints):,} fingerprints from cache")
+                        return
+                except Exception as e:
+                    logger.warning(f"Failed to load cache: {e}")
+        
+        logger.info("Cache not found or outdated. Creating new cache...")        
+        self._create_new_cache(csv_path)
+    
+    def _create_new_cache(self, csv_path: str):
+        """Create new cache from CSV file."""
+        df = pd.read_csv(csv_path)        
+        n_cores = multiprocessing.cpu_count()
+        chunk_size = max(1, len(df) // (n_cores - 2))  # Leave 2 cores for other tasks
+        chunks = [df['Morgan_Fingerprint'][i:i + chunk_size] for i in range(0, len(df), chunk_size)]
+        
+        fingerprints = []
+        with ProcessPoolExecutor(max_workers=n_cores) as executor:
+            futures = [executor.submit(batch_parse_fingerprints, chunk) for chunk in chunks]
+            for future in tqdm(futures, desc="Processing chunks"):
+                batch_fps = future.result()
+                fingerprints.extend(batch_fps)
+        
+        smiles = df['SMILES'].tolist()
+        fp_lengths = df['Fingerprint_Sum'].tolist()
+        
+        self.fit(fingerprints, fp_lengths, smiles)
+        self._save_cache()
+        
+        with open(self.fingerprint_cache_dir / "metadata.pkl", 'wb') as f:
+            import pickle
+            pickle.dump({'csv_mtime': os.path.getmtime(csv_path)}, f)
+        
+        logger.info(f"Created cache with {len(fingerprints):,} fingerprints.")
     
     @property
     def fp_sets(self):
@@ -49,80 +105,27 @@ class FastSearch:
         self._log_info(f"Fitting {len(fingerprints):,} fingerprints...")
         self.fingerprints = fingerprints
         self.smiles = smiles
-        self.fp_lengths = np.array(fp_lengths)  # Use pre-computed lengths
+        self.fp_lengths = np.array(fp_lengths)
         self._fp_sets = None  # Reset cache
         self._log_info(f"Fit completed.")
     
-    def save_cache(self, cache_dir: Path):
-        cache_dir.mkdir(exist_ok=True)
+    def _save_cache(self):
+        """Save the current state to cache."""
+        self.fingerprint_cache_dir.mkdir(exist_ok=True)
         fp_array = np.array(self.fingerprints, dtype=object)
-        np.save(cache_dir / "fingerprints.npy", fp_array)
+        np.save(self.fingerprint_cache_dir / "fingerprints.npy", fp_array)
         if self.smiles:
             smiles_array = np.array(self.smiles, dtype=str)
-            np.save(cache_dir / "smiles.npy", smiles_array)
+            np.save(self.fingerprint_cache_dir / "smiles.npy", smiles_array)
     
-    @classmethod
-    def load_cache(cls, cache_dir: Path):
-        instance = cls(cache_dir=cache_dir)
-        fp_array = np.load(cache_dir / "fingerprints.npy", allow_pickle=True)
-        instance.fingerprints = fp_array.tolist()
-        smiles_path = cache_dir / "smiles.npy"
+    def _load_from_cache(self):
+        """Load the state from cache."""
+        fp_array = np.load(self.fingerprint_cache_dir / "fingerprints.npy", allow_pickle=True)
+        self.fingerprints = fp_array.tolist()
+        smiles_path = self.fingerprint_cache_dir / "smiles.npy"
         if smiles_path.exists():
-            instance.smiles = np.load(smiles_path, allow_pickle=True).tolist()
-        instance._fp_sets = None
-        
-        return instance
-
-    @staticmethod
-    def load_or_create_cache(csv_file: str, fingerprint_cache_dir: str):
-        CACHE_DIR = Path(fingerprint_cache_dir)
-        FP_CACHE = CACHE_DIR / "fingerprints.npy"
-        METADATA_CACHE = CACHE_DIR / "metadata.pkl"
-
-        CACHE_DIR.mkdir(exist_ok=True)
-        csv_mtime = os.path.getmtime(csv_file)
-        cache_exists = all(p.exists() for p in [FP_CACHE, METADATA_CACHE])
-        
-        if cache_exists:
-            with open(METADATA_CACHE, 'rb') as f:
-                try:
-                    import pickle
-                    metadata = pickle.load(f)
-                    if metadata.get('csv_mtime') == csv_mtime:
-                        searcher = FastSearch.load_cache(fingerprint_cache_dir)
-                        df = pd.read_csv(csv_file)
-                        searcher.fp_lengths = df['Fingerprint_Sum'].values
-                        logger.info(f"Loaded {len(searcher.fingerprints):,} fingerprints from cache")
-                        return searcher
-                except:
-                    pass
-        logger.info("Cache not found or outdated. Creating new cache...")        
-        
-        df = pd.read_csv(csv_file)        
-        n_cores = multiprocessing.cpu_count()
-        chunk_size = max(1, len(df) // (n_cores - 2)) # Leave 2 cores for other tasks
-        chunks = [df['Morgan_Fingerprint'][i:i + chunk_size] for i in range(0, len(df), chunk_size)]
-        
-        fingerprints = []
-        with ProcessPoolExecutor(max_workers=n_cores) as executor:
-            futures = [executor.submit(batch_parse_fingerprints, chunk) for chunk in chunks]
-            for future in tqdm(futures, desc="Processing chunks"):
-                batch_fps = future.result()
-                fingerprints.extend(batch_fps)
-        
-        smiles = df['SMILES'].tolist()
-        fp_lengths = df['Fingerprint_Sum'].tolist()  # Use pre-computed sums
-        
-        searcher = FastSearch()
-        searcher.fit(fingerprints, fp_lengths, smiles)
-        searcher.save_cache(CACHE_DIR)
-        with open(METADATA_CACHE, 'wb') as f:
-            import pickle
-            pickle.dump({'csv_mtime': csv_mtime}, f)
-        logger.info(f"Created cache with {len(fingerprints):,} fingerprints.")
-                 
-        return searcher
-
+            self.smiles = np.load(smiles_path, allow_pickle=True).tolist()
+        self._fp_sets = None
 
     def search(
         self, 
@@ -178,6 +181,3 @@ class FastSearch:
         )
         
         return results
-
-
-
