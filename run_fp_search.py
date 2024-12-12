@@ -5,8 +5,8 @@ from datetime import datetime
 from rdkit import DataStructs
 from rdkit.Chem import rdMolDescriptors
 
+from tanimoto_fast import FastSearch
 from utils.helpers import simple_merge_csvs
-from tanimoto_fast import load_or_create_cache
 from calculate_mol_features import main as calculate_mol_features
 
 
@@ -111,7 +111,7 @@ def main(fast_search):
 
 if __name__ == "__main__":
     csv_file = '/Users/khorenpetrosyan/moldb_props/output_mol_feature/molecular_features.csv'
-    fast_search, load_time = load_or_create_cache(csv_file)
+    fast_search, load_time = FastSearch(csv_file)
     for _ in range(20):
         print("\n", "="*80, "\n")
         main(fast_search=fast_search)
