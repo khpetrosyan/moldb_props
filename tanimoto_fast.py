@@ -13,7 +13,6 @@ from pathlib import Path
 CACHE_DIR = Path("fingerprint_cache")
 FP_CACHE = CACHE_DIR / "fingerprints.npy"
 SMILES_CACHE = CACHE_DIR / "smiles.npy"
-LENGTHS_CACHE = CACHE_DIR / "lengths.npy"
 METADATA_CACHE = CACHE_DIR / "metadata.pkl"
 
 def parse_fingerprint(fp_str: str) -> Optional[np.ndarray]:
@@ -31,7 +30,7 @@ class FastSearch:
     def __init__(self):
         self.fingerprints = None
         self.smiles = None
-        self.fp_lengths = None
+        self.fp_lengths = None  # Will store pre-computed Fingerprint_Sum values
         self._fp_sets = None
     
     @property
@@ -42,12 +41,12 @@ class FastSearch:
             self._fp_sets = [set(fp) for fp in tqdm(self.fingerprints, desc="Creating sets")]
         return self._fp_sets
         
-    def fit(self, fingerprints: List[np.ndarray], smiles: List[str] = None):
+    def fit(self, fingerprints: List[np.ndarray], fp_lengths: List[int], smiles: List[str] = None):
         print(f"Fitting {len(fingerprints):,} fingerprints...")
         start = time.time()
         self.fingerprints = fingerprints
         self.smiles = smiles
-        self.fp_lengths = np.array([len(fp) for fp in fingerprints])
+        self.fp_lengths = np.array(fp_lengths)  # Use pre-computed lengths
         self._fp_sets = None  # Reset cache
         print(f"Fit completed in {time.time() - start:.2f} seconds")
     
@@ -63,9 +62,6 @@ class FastSearch:
         if self.smiles:
             smiles_array = np.array(self.smiles, dtype=str)
             np.save(cache_dir / "smiles.npy", smiles_array)
-        
-        # Save lengths as numpy array
-        np.save(cache_dir / "lengths.npy", self.fp_lengths)
     
     @classmethod
     def load_cache(cls, cache_dir: Path):
@@ -80,15 +76,12 @@ class FastSearch:
         smiles_path = cache_dir / "smiles.npy"
         if smiles_path.exists():
             instance.smiles = np.load(smiles_path, allow_pickle=True).tolist()
-        
-        # Load lengths using memory mapping
-        instance.fp_lengths = np.load(cache_dir / "lengths.npy", mmap_mode='r')
+            
         instance._fp_sets = None
         
         return instance
     
-    def search(self, query: np.ndarray, k: int = 5, show_progress: bool = True, batch_size: int = 10000) -> List[Tuple[int, float]]:
-        # Search implementation remains the same
+    def search(self, query: np.ndarray, k: int = 5, threshold: float = 0.3, show_progress: bool = True, batch_size: int = 10000) -> List[Tuple[int, float]]:
         start = time.time()
         n_query = len(query)
         heap = []
@@ -105,11 +98,12 @@ class FastSearch:
                 upper_bounds = np.minimum(n_query, self.fp_lengths[start_idx:end_idx]) / \
                              np.maximum(n_query, self.fp_lengths[start_idx:end_idx])
                 
+                # Apply both threshold and heap-based pruning
                 if len(heap) == k:
-                    min_sim = heap[0][0]
+                    min_sim = max(heap[0][0], threshold)
                     valid_indices = np.where(upper_bounds >= min_sim)[0] + start_idx
                 else:
-                    valid_indices = np.arange(start_idx, end_idx)
+                    valid_indices = np.where(upper_bounds >= threshold)[0] + start_idx
                 
                 early_stops += (end_idx - start_idx) - len(valid_indices)
                 comparisons += end_idx - start_idx
@@ -119,10 +113,11 @@ class FastSearch:
                     union = n_query + self.fp_lengths[idx] - intersection
                     similarity = intersection / union if union > 0 else 0.0
                     
-                    if len(heap) < k:
-                        heapq.heappush(heap, (similarity, idx))
-                    elif similarity > heap[0][0]:
-                        heapq.heapreplace(heap, (similarity, idx))
+                    if similarity >= threshold:
+                        if len(heap) < k:
+                            heapq.heappush(heap, (similarity, idx))
+                        elif similarity > heap[0][0]:
+                            heapq.heapreplace(heap, (similarity, idx))
                 
                 pbar.update(end_idx - start_idx)
         
@@ -145,7 +140,7 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
     
     # Check if cached data exists and is newer than CSV
     csv_mtime = os.path.getmtime(csv_file)
-    cache_exists = all(p.exists() for p in [FP_CACHE, LENGTHS_CACHE])
+    cache_exists = all(p.exists() for p in [FP_CACHE])
     
     if cache_exists:
         with open(METADATA_CACHE, 'rb') as f:
@@ -156,6 +151,9 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
                     print("Loading from cache...")
                     start = time.time()
                     searcher = FastSearch.load_cache(CACHE_DIR)
+                    # Read lengths from CSV after loading cache
+                    df = pd.read_csv(csv_file)
+                    searcher.fp_lengths = df['Fingerprint_Sum'].values
                     load_time = time.time() - start
                     print(f"Loaded {len(searcher.fingerprints):,} fingerprints from cache in {load_time:.2f} seconds")
                     return searcher, load_time
@@ -182,10 +180,11 @@ def load_or_create_cache(csv_file: str) -> Tuple[FastSearch, float]:
             fingerprints.extend(batch_fps)
     
     smiles = df['SMILES'].tolist()
+    fp_lengths = df['Fingerprint_Sum'].tolist()  # Use pre-computed sums
     invalid_count = len(df) - len(fingerprints)
     
     searcher = FastSearch()
-    searcher.fit(fingerprints, smiles)
+    searcher.fit(fingerprints, fp_lengths, smiles)
     
     # Save to cache
     searcher.save_cache(CACHE_DIR)

@@ -52,14 +52,9 @@ def debug_fingerprint(smiles: str):
     print(f"Bit positions: {sorted(list(bits))[:10]}...")
     return bits
 
-def main():
+def main(fast_search):
     print(f"Starting molecular search at {datetime.now()}")
     start_total = time.time()
-    
-    csv_file = '/Users/khorenpetrosyan/moldb_props/output_mol_feature/molecular_features.csv'
-    fast_search, load_time = load_or_create_cache(csv_file)
-    
-    print(f"Loaded {len(fast_search.fingerprints)} fingerprints in {load_time:.2f} seconds")
     
     i_mol = np.random.randint(len(fast_search.fingerprints))
     query = fast_search.fingerprints[i_mol]
@@ -115,6 +110,8 @@ def main():
     print(f"Finished at {datetime.now()}")
 
 if __name__ == "__main__":
-    for _ in range(5):
-        main()
+    csv_file = '/Users/khorenpetrosyan/moldb_props/output_mol_feature/molecular_features.csv'
+    fast_search, load_time = load_or_create_cache(csv_file)
+    for _ in range(20):
         print("\n", "="*80, "\n")
+        main(fast_search=fast_search)
