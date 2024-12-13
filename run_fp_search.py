@@ -49,7 +49,7 @@ def debug_fingerprint(smiles: str):
 
 def main(fast_search):
     print(f"Starting molecular search at {datetime.now()}")
-    query_smiles = "CC(=O)OC1=CC=CC=C1C(=O)O" # np.random.choice(fast_search.smiles) # "CC(=O)OC1=CC=CC=C1C(=O)O" # Aspirin
+    query_smiles =  np.random.choice(fast_search.smiles) # "CC(=O)OC1=CC=CC=C1C(=O)O" # Aspirin
     query = get_morgan_fp_indices(query_smiles)
     
     start_total = time.time()
