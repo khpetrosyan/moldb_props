@@ -1,7 +1,9 @@
+import csv
 import json
 import tiktoken
-import csv
 from tqdm import tqdm
+from numba import jit
+
 
 def simple_merge_csvs(input_files, output_file):
     with open(output_file, 'w', newline='') as outfile:
@@ -73,3 +75,38 @@ def get_morgan_fp_indices(smiles: str, radius: int = 2, nbits: int = 2048) -> Op
         return None
 
 
+
+@jit(nopython=True)
+def count_common_elements(arr1, arr2):
+    last_found = -1  
+    count = 0
+    i = 0 
+    j = 0
+    
+    while i < len(arr1) and j < len(arr2):
+        if arr1[i] < arr2[j]:
+            i += 1
+        elif arr1[i] > arr2[j]:
+            j += 1
+        else: 
+            if arr1[i] != last_found:
+                count += 1
+                last_found = arr1[i]
+            i += 1
+            j += 1
+    
+    return count
+
+@jit(nopython=True)
+def tanimoto_similarity(arr1, arr2):
+    intersection = count_common_elements(arr1, arr2)
+    unique1 = len(arr1)
+    unique2 = len(arr2)
+    union = unique1 + unique2 - intersection
+    
+    if union == 0:
+        return 1.0 if len(arr1) == 0 and len(arr2) == 0 else 0.0
+        
+    return intersection / union
+
+assert tanimoto_similarity(np.array([1, 2, 3]), np.array([2, 3, 4])) == 0.5; "Tanimoto calculator broken!" # to compile the function and test it

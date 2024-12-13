@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 from concurrent.futures import ProcessPoolExecutor
 
-from utils.helpers import get_morgan_fp_indices
+from utils.helpers import get_morgan_fp_indices, tanimoto_similarity
 
 import logging
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ def batch_parse_fingerprints(chunk):
 class FastSearch:
     def __init__(self, csv_path=None, fingerprint_cache_dir=None, verbose=True):
         self.smiles = None
-        self._fp_sets = None
         self.verbose = verbose
         self.fp_lengths = None
         self.fingerprints = None
@@ -96,19 +95,12 @@ class FastSearch:
         
         logger.info(f"Created cache with {len(fingerprints):,} fingerprints.")
     
-    @property
-    def fp_sets(self):
-        if self._fp_sets is None:
-            self._log_info("Creating fingerprint sets on first use...")
-            self._fp_sets = [set(fp) for fp in tqdm(self.fingerprints, desc="Creating sets")]
-        return self._fp_sets
         
     def fit(self, fingerprints: List[np.ndarray], fp_lengths: List[int], smiles: List[str] = None):
         self._log_info(f"Fitting {len(fingerprints):,} fingerprints...")
         self.fingerprints = fingerprints
         self.smiles = smiles
         self.fp_lengths = np.array(fp_lengths)
-        self._fp_sets = None  # Reset cache
         self._log_info(f"Fit completed.")
         
     def _save_cache(self):
@@ -127,13 +119,13 @@ class FastSearch:
         smiles_path = self.fingerprint_cache_dir / "smiles.npy"
         if smiles_path.exists():
             self.smiles = np.load(smiles_path, allow_pickle=True).tolist()
-        self._fp_sets = None
+
 
     def search(
         self, 
         query_smiles: np.ndarray, 
         k: int = 5,
-        threshold: float = 0.5, 
+        threshold: float = 0.3, 
         batch_size: int = 10000
     ) -> List[Tuple[int, float]]:
         
@@ -144,7 +136,6 @@ class FastSearch:
         
         heap = []
         n_query = len(query)
-        query_set = set(query)
         
         comparisons = early_stops = 0
         n_batches = (len(self.fingerprints) + batch_size - 1) // batch_size
@@ -166,9 +157,7 @@ class FastSearch:
                 comparisons += end_idx - start_idx
                 
                 for idx in valid_indices:
-                    intersection = len(query_set.intersection(self.fp_sets[idx]))
-                    union = n_query + self.fp_lengths[idx] - intersection
-                    similarity = intersection / union if union > 0 else 0.0
+                    similarity = tanimoto_similarity(query, self.fingerprints[idx])
                     
                     if similarity >= threshold:
                         if len(heap) < k:
